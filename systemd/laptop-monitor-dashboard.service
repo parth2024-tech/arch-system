@@ -1,0 +1,14 @@
+[Unit]
+Description=Hermes Laptop Health & Performance Monitor Dashboard
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/thor/Desktop/arch system
+ExecStart="/home/thor/Desktop/arch system/venv/bin/python" -m uvicorn src.dashboard.app:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=10
+Environment="PYTHONPATH=/home/thor/Desktop/arch system/src"
+
+[Install]
+WantedBy=default.target

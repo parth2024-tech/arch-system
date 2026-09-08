@@ -1,0 +1,14 @@
+{# Telegram Status Template #}
+{% if telegram.ok %}
+<div class="telegram-status ok">
+    <span>✓</span>
+    <span>Connected to @{{ telegram.bot_username }} ({{ telegram.bot_name }})</span>
+    <span style="font-size: 0.75rem; color: #86efac;">Last check: {{ telegram.last_check.replace('T', ' ').split('.')[0] }}</span>
+</div>
+{% else %}
+<div class="telegram-status error">
+    <span>✗</span>
+    <span>Disconnected: {{ telegram.error }}</span>
+    <span style="font-size: 0.75rem; color: #fca5a5;">Last check: {{ telegram.last_check.replace('T', ' ').split('.')[0] if telegram.last_check else 'never' }}</span>
+</div>
+{% endif %}

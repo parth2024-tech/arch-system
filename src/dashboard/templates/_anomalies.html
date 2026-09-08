@@ -1,0 +1,61 @@
+{# Anomalies Response Template #}
+{% set anomalies_data = anomalies %}
+{% set summary = summary %}
+
+{% if anomalies_data %}
+<div class="card" style="margin-bottom: 16px;">
+    <h2 style="margin: 0 0 8px 0; font-size: 1rem; color: #eab308;">
+        Anomaly Summary (last 24h): {{ summary.total }} total
+    </h2>
+    <div style="display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.85rem; color: #94a3b8;">
+        <span>By Severity: 
+            {% for sev, count in summary.by_severity.items() %}
+                <span class="status-badge status-{{ sev.lower() }}">{{ sev }}: {{ count }}</span>
+            {% endfor %}
+        </span>
+        <span>By Component: 
+            {% for comp, count in summary.by_component.items() %}
+                <span class="status-badge status-info">{{ comp }}: {{ count }}</span>
+            {% endfor %}
+        </span>
+        <span>By Method: 
+            {% for method, count in summary.by_method.items() %}
+                <span class="status-badge status-info">{{ method }}: {{ count }}</span>
+            {% endfor %}
+        </span>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Recent Anomalies</h2>
+    {% for anomaly in anomalies_data[:20] %}
+    <div class="issue-card {{ anomaly.severity.lower() }}">
+        <div class="issue-header">
+            <span class="issue-title">{{ anomaly.component }}.{{ anomaly.metric_name }}</span>
+            <span class="issue-severity status-badge status-{{ anomaly.severity.lower() }}">{{ anomaly.severity }}</span>
+        </div>
+        <div class="issue-evidence">
+            <strong>Method:</strong> {{ anomaly.detection_method }} | 
+            <strong>Score:</strong> {{ "%.3f"|format(anomaly.anomaly_score) }} | 
+            <strong>Value:</strong> {{ anomaly.metric_value }} | 
+            <strong>Expected:</strong> {{ "%.2f"|format(anomaly.expected_range_min) }} – {{ "%.2f"|format(anomaly.expected_range_max) }}
+        </div>
+        <div class="issue-evidence">
+            <strong>Time:</strong> {{ anomaly.timestamp.replace('T', ' ').split('.')[0] }}
+        </div>
+    </div>
+    {% endfor %}
+    {% if anomalies_data|length > 20 %}
+    <div style="text-align: center; color: #64748b; padding: 16px;">
+        Showing 20 of {{ anomalies_data|length }} anomalies. Check database for full history.
+    </div>
+    {% endif %}
+</div>
+{% else %}
+<div class="card">
+    <div class="no-issues">
+        <h3>✓ No Anomalies Detected</h3>
+        <p>All metrics within normal ranges. IsolationForest and statistical baselines show healthy patterns.</p>
+    </div>
+</div>
+{% endif %}

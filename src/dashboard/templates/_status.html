@@ -1,0 +1,240 @@
+{# Status Card Component Template #}
+<div class="grid">
+    <!-- Health Score -->
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h2 style="margin: 0;">System Health</h2>
+            <span class="status-badge status-{{ 'healthy' if health_score >= 80 else 'warning' if health_score >= 50 else 'critical' }}">
+                {{ health_score }}/100
+            </span>
+        </div>
+        <div class="health-score {{ 'healthy' if health_score >= 80 else 'warning' if health_score >= 50 else 'critical' }}">
+            {{ health_score }}
+        </div>
+        <div style="margin-top: 12px; font-size: 0.85rem; color: #94a3b8;">
+            Predictive: <span class="{{ 'good' if predicted_health_score >= 80 else 'warning' if predicted_health_score >= 50 else 'critical' }}">
+                {{ predicted_health_score }}/100
+            </span>
+            {% if predictions.time_to_critical_hours %}
+                | ⚠ {{ predictions.time_to_critical_hours }}h to critical
+            {% endif %}
+        </div>
+        <div style="margin-top: 8px; font-size: 0.75rem; color: #64748b;">
+            Updated: {{ timestamp.replace('T', ' ').split('.')[0] }}
+        </div>
+    </div>
+    
+    <!-- Component Status Grid -->
+    <div class="card">
+        <h2>Component Status</h2>
+        {% for comp, status in components.items() %}
+        <div class="metric">
+            <span class="metric-label">{{ comp }}</span>
+            <span class="metric-value">
+                <span class="status-badge status-{{ status.lower() }}">{{ status }}</span>
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+    
+    <!-- Key Metrics: CPU -->
+    <div class="card">
+        <h2>🖥️ CPU</h2>
+        <div class="metric">
+            <span class="metric-label">Utilization</span>
+            <span class="metric-value {{ 'critical' if metrics.cpu.overall_utilization > 90 else 'warning' if metrics.cpu.overall_utilization > 70 else 'good' }}">
+                {{ "%.1f"|format(metrics.cpu.overall_utilization) }}%
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Frequency</span>
+            <span class="metric-value">{{ "%.0f"|format(metrics.cpu.freq_current) }} MHz</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Load Avg (1m)</span>
+            <span class="metric-value">{{ "%.2f"|format(metrics.cpu.load_avg[0] if metrics.cpu.load_avg else 0) }}</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Per-Core</span>
+            <span class="metric-value">{{ metrics.cpu.per_core|length }} cores</span>
+        </div>
+    </div>
+    
+    <!-- Key Metrics: RAM -->
+    <div class="card">
+        <h2>🧠 RAM</h2>
+        <div class="metric">
+            <span class="metric-label">Used / Total</span>
+            <span class="metric-value {{ 'critical' if metrics.ram.percent > 90 else 'warning' if metrics.ram.percent > 75 else 'good' }}">
+                {{ "%.1f"|format(metrics.ram.used / (1024**3)) }} / {{ "%.1f"|format(metrics.ram.total / (1024**3)) }} GB
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Utilization</span>
+            <span class="metric-value {{ 'critical' if metrics.ram.percent > 90 else 'warning' if metrics.ram.percent > 75 else 'good' }}">
+                {{ "%.1f"|format(metrics.ram.percent) }}%
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Available</span>
+            <span class="metric-value good">{{ "%.1f"|format(metrics.ram.available / (1024**3)) }} GB</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Swap</span>
+            <span class="metric-value">{{ "%.1f"|format(metrics.ram.swap_percent) }}%</span>
+        </div>
+    </div>
+    
+    <!-- Key Metrics: GPU -->
+    <div class="card">
+        <h2>🎮 GPU</h2>
+        {% if metrics.gpu.present %}
+        <div class="metric">
+            <span class="metric-label">{{ metrics.gpu.name }}</span>
+            <span class="metric-value good">Active</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Temperature</span>
+            <span class="metric-value {{ 'critical' if metrics.gpu.temperature > 85 else 'warning' if metrics.gpu.temperature > 75 else 'good' }}">
+                {{ "%.0f"|format(metrics.gpu.temperature) }}°C
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Utilization</span>
+            <span class="metric-value">{{ "%.0f"|format(metrics.gpu.utilization) }}%</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">VRAM</span>
+            <span class="metric-value">{{ "%.1f"|format(metrics.gpu.vram_used / (1024**3)) }} / {{ "%.1f"|format(metrics.gpu.vram_total / (1024**3)) }} GB</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Power Draw</span>
+            <span class="metric-value">{{ "%.1f"|format(metrics.gpu.power_draw) }}W</span>
+        </div>
+        {% else %}
+        <div class="metric">
+            <span class="metric-label">GPU</span>
+            <span class="metric-value">Not detected</span>
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- Key Metrics: Storage -->
+    <div class="card">
+        <h2>💾 Storage</h2>
+        {% for mount, info in metrics.storage.items() %}
+        <div class="metric">
+            <span class="metric-label">{{ mount }}</span>
+            <span class="metric-value {{ 'critical' if info.percent > 90 else 'warning' if info.percent > 80 else 'good' }}">
+                {{ "%.0f"|format(info.percent) }}% ({{ "%.0f"|format(info.free / (1024**3)) }} GB free)
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+    
+    <!-- Key Metrics: Battery -->
+    <div class="card">
+        <h2>🔋 Battery</h2>
+        {% if metrics.battery.present %}
+        <div class="metric">
+            <span class="metric-label">Level</span>
+            <span class="metric-value {{ 'critical' if metrics.battery.percent < 10 else 'warning' if metrics.battery.percent < 20 else 'good' }}">
+                {{ metrics.battery.percent }}%
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Status</span>
+            <span class="metric-value {{ 'good' if metrics.battery.power_plugged else 'warning' }}">
+                {{ 'Charging' if metrics.battery.power_plugged else 'Discharging' }}
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Time Remaining</span>
+            <span class="metric-value">
+                {% if metrics.battery.secsleft > 0 %}
+                    {{ (metrics.battery.secsleft // 3600) }}h {{ (metrics.battery.secsleft % 3600) // 60 }}m
+                {% else %}
+                    Calculating...
+                {% endif %}
+            </span>
+        </div>
+        {% else %}
+        <div class="metric">
+            <span class="metric-label">Battery</span>
+            <span class="metric-value">Not present</span>
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- Key Metrics: Thermals -->
+    <div class="card">
+        <h2>🌡️ Thermals</h2>
+        {% for sensor, temp in metrics.temps.items() %}
+        <div class="metric">
+            <span class="metric-label">{{ sensor }}</span>
+            <span class="metric-value {{ 'critical' if temp > 90 else 'warning' if temp > 75 else 'good' }}">
+                {{ "%.0f"|format(temp) }}°C
+            </span>
+        </div>
+        {% endfor %}
+        {% if not metrics.temps %}
+        <div class="metric"><span class="metric-label">No sensors</span><span class="metric-value">—</span></div>
+        {% endif %}
+    </div>
+    
+    <!-- Key Metrics: Network -->
+    <div class="card">
+        <h2>📶 Network</h2>
+        <div class="metric">
+            <span class="metric-label">Status</span>
+            <span class="metric-value {{ 'good' if metrics.network.connected else 'critical' }}">
+                {{ 'Connected' if metrics.network.connected else 'Disconnected' }}
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">WiFi Signal</span>
+            <span class="metric-value {{ 'critical' if metrics.network.wifi_signal < 30 else 'warning' if metrics.network.wifi_signal < 50 else 'good' }}">
+                {{ metrics.network.wifi_signal }}%
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">SSID</span>
+            <span class="metric-value">{{ metrics.network.wifi_ssid or 'N/A' }}</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">RX / TX</span>
+            <span class="metric-value">{{ "%.1f"|format(metrics.network.bytes_recv / (1024**2)) }} / {{ "%.1f"|format(metrics.network.bytes_sent / (1024**2)) }} MB</span>
+        </div>
+    </div>
+    
+    <!-- Key Metrics: NVMe -->
+    <div class="card">
+        <h2>⚡ NVMe Health</h2>
+        {% if metrics.nvme %}
+        <div class="metric">
+            <span class="metric-label">Temperature</span>
+            <span class="metric-value {{ 'critical' if metrics.nvme.temperature > 70 else 'warning' if metrics.nvme.temperature > 60 else 'good' }}">
+                {{ metrics.nvme.temperature }}°C
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Wear Level</span>
+            <span class="metric-value {{ 'warning' if (metrics.nvme.percentage_used or 0) > 80 else 'good' }}">
+                {{ metrics.nvme.percentage_used or 'N/A' }}%
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Critical Warning</span>
+            <span class="metric-value {{ 'critical' if (metrics.nvme.critical_warning or 0) > 0 else 'good' }}">
+                {{ 'YES' if (metrics.nvme.critical_warning or 0) > 0 else 'NO' }}
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Media Errors</span>
+            <span class="metric-value">{{ metrics.nvme.media_errors or 0 }}</span>
+        </div>
+        {% else %}
+        <div class="metric"><span class="metric-label">NVMe</span><span class="metric-value">Not available</span></div>
+        {% endif %}
+    </div>
+</div>

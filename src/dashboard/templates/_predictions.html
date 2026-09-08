@@ -1,0 +1,108 @@
+{# Predictions Response Template #}
+{% set predictions = predictions %}
+
+{% if predictions %}
+    {% set latest = predictions[0] %}
+    
+    <div class="card" style="margin-bottom: 16px;">
+        <h2 style="margin: 0 0 8px 0; font-size: 1rem; color: #38bdf8;">
+            Predictive Health Score: 
+            <span class="{{ 'good' if latest.predicted_health_score >= 80 else 'warning' if latest.predicted_health_score >= 50 else 'critical' }}">
+                {{ latest.predicted_health_score }}/100
+            </span>
+        </h2>
+        {% if latest.time_to_critical_hours %}
+        <div style="color: #ef4444; font-weight: 600; margin-bottom: 8px;">
+            ⚠ Estimated {{ latest.time_to_critical_hours }} hours until critical threshold breach
+        </div>
+        {% else %}
+        <div style="color: #22c55e; margin-bottom: 8px;">
+            ✓ No critical thresholds trending within 48 hours
+        </div>
+        {% endif %}
+        <div style="font-size: 0.85rem; color: #94a3b8;">
+            Forecast horizon: 4h | Trend window: 24h | Generated: {{ latest.timestamp.replace('T', ' ').split('.')[0] }}
+        </div>
+    </div>
+    
+    {% if latest.risk_factors %}
+    <div class="card" style="margin-bottom: 16px;">
+        <h2>Risk Factors</h2>
+        {% for rf in latest.risk_factors %}
+        <div class="risk-factor {{ rf.severity.lower() }}">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong>{{ rf.label }}</strong> ({{ rf.component }}.{{ rf.metric }})
+                    <span class="status-badge status-{{ rf.severity.lower() }}" style="margin-left: 8px;">{{ rf.severity }}</span>
+                </div>
+                <div style="text-align: right;">
+                    <div>Current: {{ "%.1f"|format(rf.current) }}</div>
+                    <div class="trend-{{ 'up' if rf.forecast > rf.current else 'down' if rf.forecast < rf.current else 'stable' }}">
+                        Forecast (4h): {{ "%.1f"|format(rf.forecast) }}
+                    </div>
+                </div>
+            </div>
+            <div style="margin-top: 8px; font-size: 0.85rem; color: #94a3b8;">
+                Trend: {{ "%.2f"|format(rf.slope_per_hour or 0.0) }}/hr | R²: {{ "%.2f"|format(rf.r_squared or 0.0) }} | 
+                <strong>{{ rf.hours_to_critical }}h to critical</strong>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    {% if latest.forecasts %}
+    <div class="card">
+        <h2>Metric Forecasts (4-hour horizon)</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+            {% for key, fc in latest.forecasts.items() %}
+            <div class="forecast-card">
+                <div style="font-weight: 600; color: #38bdf8; margin-bottom: 8px;">{{ fc.label }}</div>
+                <div class="forecast-metric">
+                    <span>Current</span>
+                    <span class="{{ 'critical' if fc.current > 80 else 'warning' if fc.current > 60 else 'good' }}">{{ "%.1f"|format(fc.current) }}</span>
+                </div>
+                <div class="forecast-metric">
+                    <span>Forecast (4h)</span>
+                    <span class="trend-{{ 'up' if fc.forecast > fc.current else 'down' if fc.forecast < fc.current else 'stable' }}">
+                        {{ "%.1f"|format(fc.forecast) }}
+                        {% if fc.slope_per_hour != 0 %}
+                        ({{ "%.2f"|format(fc.slope_per_hour) }}/hr)
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="forecast-metric">
+                    <span>Confidence (R²)</span>
+                    <span>{{ "%.0f"|format(fc.r_squared * 100) }}%</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+    {% if predictions|length > 1 %}
+    <details style="margin-top: 16px;">
+        <summary style="cursor: pointer; color: #94a3b8;">Show prediction history ({{ predictions|length }} entries)</summary>
+        <div style="margin-top: 12px; font-size: 0.8rem;">
+            {% for p in predictions[1:] %}
+            <div style="padding: 4px 0; color: #64748b;">
+                {{ p.timestamp.replace('T', ' ').split('.')[0] }} | Score: {{ p.predicted_health_score }} | 
+                {% if p.time_to_critical_hours %}
+                    {{ p.time_to_critical_hours }}h to critical
+                {% else %}
+                    No critical trend
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+{% else %}
+<div class="card">
+    <div class="no-issues">
+        <h3>Building Predictive Model...</h3>
+        <p>Need at least 5 data points per metric (24h collection). Forecasts will appear once sufficient history is available.</p>
+    </div>
+</div>
+{% endif %}

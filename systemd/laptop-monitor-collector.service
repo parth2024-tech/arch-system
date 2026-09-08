@@ -1,0 +1,12 @@
+[Unit]
+Description=Hermes Laptop Health & Performance Monitor Collector
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/thor/Desktop/arch system
+ExecStart="/home/thor/Desktop/arch system/venv/bin/python" "/home/thor/Desktop/arch system/collector.py"
+Environment="PYTHONPATH=/home/thor/Desktop/arch system/src"
+
+[Install]
+WantedBy=default.target

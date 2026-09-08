@@ -1,0 +1,34 @@
+{# Issues Response Template #}
+{% set issues = issues %}
+
+{% if issues %}
+<div class="card">
+    <h2>Active Issues ({{ issues|length }})</h2>
+    {% for issue in issues %}
+    <div class="issue-card {{ issue.severity.lower() }}">
+        <div class="issue-header">
+            <span class="issue-title">{{ issue.title }}</span>
+            <span class="issue-severity status-badge status-{{ issue.severity.lower() }}">{{ issue.severity }}</span>
+        </div>
+        <div class="issue-evidence">
+            <strong>Component:</strong> {{ issue.component }} | 
+            <strong>Time:</strong> {{ issue.timestamp.replace('T', ' ').split('.')[0] }}
+        </div>
+        <div class="issue-evidence">{{ issue.description }}</div>
+        {% if issue.evidence %}
+        <div class="issue-evidence"><strong>Evidence:</strong> {{ issue.evidence }}</div>
+        {% endif %}
+        {% if issue.recommendation %}
+        <div class="issue-recommendation"><strong>Recommendation:</strong> {{ issue.recommendation }}</div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card">
+    <div class="no-issues">
+        <h3>✓ No Active Issues</h3>
+        <p>All systems operating within normal parameters.</p>
+    </div>
+</div>
+{% endif %}

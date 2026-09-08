@@ -1,0 +1,107 @@
+{
+  "name": "laptop-health-monitor",
+  "version": "1.0.0",
+  "description": "24/7 laptop hardware, OS, and performance monitoring system with intelligent diagnostics, alerting, and historical tracking for Arch Linux on i7-12650H + RTX 3050",
+  "tech_stack": [
+    "Python 3.14",
+    "psutil",
+    "systemd",
+    "SQLite (time-series)",
+    "FastAPI (dashboard API)",
+    "Jinja2 + HTMX (lightweight dashboard)",
+    "systemd timers (collection)",
+    "NVIDIA NVML (via nvidia-smi)",
+    "lm-sensors",
+    "nvme-cli",
+    "smartmontools"
+  ],
+  "conventions": [
+    "Modular collectors with isolated failure domains",
+    "No GPU usage for monitoring itself",
+    "Target <50MB RAM, <1% CPU overhead",
+    "All external commands wrapped with timeout + error handling",
+    "Metrics collected at 30s interval, aggregated to 5m/1h/1d",
+    "SQLite WAL mode for concurrent reads during writes",
+    "Configuration via TOML file, not env vars",
+    "Structured logging to SQLite + rotating text logs",
+    "No external network calls for core monitoring",
+    "All alerting via local webhook/Telegram only"
+  ],
+  "architecture_patterns": [
+    "Collector-processor-alert-dashboard pipeline",
+    "Each collector is a standalone module with well-defined output schema",
+    "Event processor correlates across collectors",
+    "Diagnostic engine uses rule-based + heuristic analysis (no LLM by default)",
+    "Watchdog monitors collectors via systemd + PID file"
+  ],
+  "file_structure": {
+    "src/collectors": "Hardware, OS, process, network collectors",
+    "src/processor": "Event correlation, diagnostic engine",
+    "src/alerts": "Alert manager, deduplication, delivery",
+    "src/storage": "SQLite time-series, retention policies",
+    "src/dashboard": "FastAPI + HTMX web UI",
+    "src/watchdog": "Self-monitoring, recovery",
+    "config": "TOML configuration",
+    "systemd": "Service/timer units",
+    "tests": "Unit + integration tests"
+  },
+  "testing_strategy": {
+    "framework": "pytest",
+    "coverage_target": "80%",
+    "patterns": [
+      "Unit tests for each collector with mocked sysfs/proc",
+      "Integration tests for event correlation",
+      "Load tests simulating high resource usage",
+      "Chaos tests: kill collectors, remove sensors, fill disk"
+    ]
+  },
+  "deployment": {
+    "platform": "Local systemd services",
+    "services": [
+      "laptop-monitor-collector.timer (30s)",
+      "laptop-monitor-processor.timer (1m)",
+      "laptop-monitor-alerts.timer (30s)",
+      "laptop-monitor-dashboard.service (web UI)",
+      "laptop-monitor-watchdog.service"
+    ]
+  },
+  "sprint_focus": "Build core collectors, storage, diagnostic engine, and dashboard",
+  "sprint_skills": [
+    "software-development/test-driven-development",
+    "software-development/systematic-debugging",
+    "software-development/plan"
+  ],
+  "never_do": [
+    "Never use GPU for monitoring computations",
+    "Never auto-kill processes or modify system config",
+    "Never collect passwords, tokens, browser data, or private content",
+    "Never fabricate metrics when sensors unavailable - mark as unknown",
+    "Never use heavy frameworks (no Prometheus, Grafana, InfluxDB, k8s)",
+    "Never run as root - use sudo only for specific commands (smartctl, nvme)",
+    "Never block on external network calls in collectors",
+    "Never log secrets or personal data",
+    "Never claim system is 'error-free' - only report verified state",
+    "Never install packages without explicit confirmation"
+  ],
+  "preferred_patterns": [
+    "Use dataclasses + type hints for all metric schemas",
+    "Use context managers for resource cleanup",
+    "Use asyncio for I/O-bound collectors (journalctl, network)",
+    "Use threading for CPU-bound collectors (psutil, sensors)",
+    "Prefer /sys and /proc reads over shell commands",
+    "Batch SQLite writes, use WAL mode",
+    "Implement circuit breakers for flaky data sources"
+  ],
+  "agent_skills": {
+    "directory": "/home/thor/skiils",
+    "default_skills": [
+      "software-development/plan",
+      "software-development/test-driven-development"
+    ],
+    "mandatory_skills": {
+      "api": "software-development/requesting-code-review",
+      "debug": "software-development/systematic-debugging"
+    },
+    "session_reporting_preference": true
+  }
+}
