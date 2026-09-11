@@ -94,76 +94,66 @@ class AnomalyEngine:
                 CREATE INDEX IF NOT EXISTS idx_predictions_time ON predictions(timestamp);
             """)
     
-    def _get_training_data(self, hours: int = 168) -> Tuple[np.ndarray, List[str]]:
+    def _get_training_data(self, hours: int = 24) -> Tuple[np.ndarray, List[str]]:
         """
         Fetch recent metrics for training. Returns (features_array, feature_names).
         Only uses data from 'healthy' periods (no active CRITICAL issues).
         """
         cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
         
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             conn.row_factory = sqlite3.Row
-            
-            # Get all metric names we track
             cursor = conn.execute("""
-                SELECT DISTINCT category, metric_name 
-                FROM metrics_history 
-                WHERE datetime(timestamp) > datetime(?)
-                ORDER BY category, metric_name
-            """, (cutoff,))
-            
-            metric_pairs = [(row["category"], row["metric_name"]) for row in cursor.fetchall()]
-            
-            if len(metric_pairs) < 5:
-                return np.array([]), []
-            
-            # Build time-series matrix: each row = timestamp, each col = metric
-            # We need to pivot the data
-            placeholders = ",".join(["(?, ?)"] * len(metric_pairs))
-            query = f"""
                 SELECT timestamp, category, metric_name, metric_value
                 FROM metrics_history
-                WHERE datetime(timestamp) > datetime(?)
-                AND (category, metric_name) IN ({placeholders})
-                ORDER BY timestamp
-            """
-            params = [cutoff]
-            for cat, name in metric_pairs:
-                params.extend([cat, name])
-            
-            cursor = conn.execute(query, params)
+                WHERE timestamp > ?
+                ORDER BY timestamp ASC
+            """, (cutoff,))
             rows = cursor.fetchall()
             
-            if len(rows) < self.min_training_samples:
-                return np.array([]), []
+        if len(rows) < self.min_training_samples:
+            return np.array([]), []
             
-            # Pivot to wide format
-            timestamps = sorted(set(r["timestamp"] for r in rows))
-            feature_names = [f"{r['category']}.{r['metric_name']}" for r in rows[:len(metric_pairs)]]
-            # Deduplicate while preserving order
-            seen = set()
-            feature_names = [f for f in feature_names if not (f in seen or seen.add(f))]
+        # Group by timestamp in a single O(N) pass
+        ts_map: Dict[str, Dict[str, float]] = {}
+        all_features = set()
+        for row in rows:
+            ts = row["timestamp"]
+            fn = f"{row['category']}.{row['metric_name']}"
+            all_features.add(fn)
+            if ts not in ts_map:
+                ts_map[ts] = {}
+            ts_map[ts][fn] = float(row["metric_value"])
             
-            # Build matrix
-            data_dict: Dict[str, List[float]] = {fn: [] for fn in feature_names}
-            for ts in timestamps:
-                for row in rows:
-                    if row["timestamp"] == ts:
-                        fn = f"{row['category']}.{row['metric_name']}"
-                        if fn in data_dict:
-                            data_dict[fn].append(row["metric_value"])
+        feature_names = sorted(all_features)
+        if len(feature_names) < 3:
+            return np.array([]), []
             
-            # Ensure all series have same length (pad with last value)
-            max_len = max(len(v) for v in data_dict.values())
+        # Cap to the most recent 500 timestamps for fast, lightweight training
+        sorted_timestamps = sorted(ts_map.keys())[-500:]
+        if len(sorted_timestamps) < self.min_training_samples:
+            return np.array([]), []
+            
+        # Build matrix with forward-fill / last known value for missing keys
+        last_values = {fn: 0.0 for fn in feature_names}
+        matrix = []
+        for ts in sorted_timestamps:
+            row_dict = ts_map[ts]
+            row_values = []
             for fn in feature_names:
-                while len(data_dict[fn]) < max_len:
-                    data_dict[fn].append(data_dict[fn][-1] if data_dict[fn] else 0.0)
+                if fn in row_dict:
+                    last_values[fn] = row_dict[fn]
+                row_values.append(last_values[fn])
+            matrix.append(row_values)
             
-            X = np.column_stack([data_dict[fn] for fn in feature_names])
-            return X, feature_names
+        X = np.array(matrix)
+        return X, feature_names
     
     def _train_isolation_forest(self) -> bool:
         """Train IsolationForest model on recent healthy data."""
+        # Always record attempt timestamp so we don't spam retries on every 30s run
+        self._last_retrain = datetime.now()
+        
         if not SKLEARN_AVAILABLE:
             return False
         
@@ -179,13 +169,12 @@ class AnomalyEngine:
             self._model = IsolationForest(
                 contamination=self.contamination,
                 random_state=42,
-                n_estimators=100,
+                n_estimators=50,
                 max_samples="auto",
                 n_jobs=1
             )
             self._model.fit(X_scaled)
             self._feature_names = feature_names
-            self._last_retrain = datetime.now()
             return True
     
     def _should_retrain(self) -> bool:
@@ -242,23 +231,45 @@ class AnomalyEngine:
             return flagged
         return []
     
-    def _get_feature_stats(self, category: str, metric: str, hours: int = 24) -> Tuple[float, float]:
-        """Get mean and std for a metric from recent history."""
+    def _get_all_feature_stats(self, hours: int = 24) -> Dict[Tuple[str, str], Tuple[float, float]]:
+        """Get mean and std for all metrics in a single indexed query."""
         cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
+        stats = {}
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cursor = conn.execute("""
-                SELECT metric_value FROM metrics_history
-                WHERE category = ? AND metric_name = ? AND datetime(timestamp) > datetime(?)
+                SELECT category, metric_name, AVG(metric_value), AVG(metric_value * metric_value), COUNT(*)
+                FROM metrics_history
+                WHERE timestamp > ?
+                GROUP BY category, metric_name
+            """, (cutoff,))
+            for cat, metric, avg_val, avg_sq, count in cursor.fetchall():
+                if count >= 2:
+                    mean = float(avg_val)
+                    var = max(0.0, float(avg_sq) - (mean ** 2))
+                    std = float(np.sqrt(var))
+                    stats[(cat, metric)] = (mean, std)
+        return stats
+
+    def _get_feature_stats(self, category: str, metric: str, hours: int = 24) -> Tuple[float, float]:
+        """Get mean and std for a single metric from recent history."""
+        cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            cursor = conn.execute("""
+                SELECT AVG(metric_value), AVG(metric_value * metric_value), COUNT(*)
+                FROM metrics_history
+                WHERE category = ? AND metric_name = ? AND timestamp > ?
             """, (category, metric, cutoff))
-            values = [row[0] for row in cursor.fetchall()]
-        
-        if len(values) < 2:
-            return 0.0, 1.0
-        return float(np.mean(values)), float(np.std(values))
+            row = cursor.fetchone()
+            if row and row[2] and row[2] >= 2:
+                mean = float(row[0])
+                var = max(0.0, float(row[1]) - (mean ** 2))
+                return mean, float(np.sqrt(var))
+        return 0.0, 1.0
     
     def _detect_univariate_zscore(self, current_metrics: Dict[str, Dict[str, float]]) -> List[Dict[str, Any]]:
         """Z-score based univariate anomaly detection."""
         anomalies = []
+        all_stats = self._get_all_feature_stats(hours=24)
         
         for category in self.monitored_categories:
             cat_metrics = current_metrics.get(category, {})
@@ -266,8 +277,11 @@ class AnomalyEngine:
                 if not isinstance(value, (int, float)):
                     continue
                 
-                mean, std = self._get_feature_stats(category, metric_name, hours=24)
-                if std == 0:
+                stat = all_stats.get((category, metric_name))
+                if not stat:
+                    continue
+                mean, std = stat
+                if std <= 0:
                     continue
                 
                 z_score = abs(value - mean) / std

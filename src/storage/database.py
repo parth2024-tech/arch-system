@@ -1,5 +1,6 @@
 import sqlite3
 import os
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 
 class Database:
@@ -28,6 +29,7 @@ class Database:
                 );
                 CREATE INDEX IF NOT EXISTS idx_metrics_time ON metrics_history(timestamp);
                 CREATE INDEX IF NOT EXISTS idx_metrics_cat ON metrics_history(category, metric_name);
+                CREATE INDEX IF NOT EXISTS idx_metrics_cat_time ON metrics_history(category, metric_name, timestamp);
 
                 CREATE TABLE IF NOT EXISTS issues (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,10 +71,11 @@ class Database:
             )
 
     def purge_old_data(self, days: int = 7):
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
         with self.get_connection() as conn:
             conn.execute(
-                "DELETE FROM metrics_history WHERE datetime(timestamp) < datetime('now', '-' || ? || ' days')",
-                (days,)
+                "DELETE FROM metrics_history WHERE timestamp < ?",
+                (cutoff,)
             )
 
     def get_recent_metrics(self, category: str, metric_name: str, limit: int = 100) -> List[Dict[str, Any]]:

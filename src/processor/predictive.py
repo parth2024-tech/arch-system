@@ -34,10 +34,10 @@ class PredictiveEngine:
         """Fetch time-series data as (epoch_seconds, value) pairs."""
         cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
         
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cursor = conn.execute("""
                 SELECT timestamp, metric_value FROM metrics_history
-                WHERE category = ? AND metric_name = ? AND datetime(timestamp) > datetime(?)
+                WHERE category = ? AND metric_name = ? AND timestamp > ?
                 ORDER BY timestamp ASC
             """, (category, metric_name, cutoff))
             
@@ -46,6 +46,11 @@ class PredictiveEngine:
         if len(rows) < 5:
             return []
             
+        # Downsample if history is dense (> 300 points) to keep regression instant
+        if len(rows) > 300:
+            step = max(1, len(rows) // 300)
+            rows = rows[::step]
+
         data = []
         for row in rows:
             try:
