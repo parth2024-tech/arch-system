@@ -25,7 +25,10 @@
     "Configuration via TOML file, not env vars",
     "Structured logging to SQLite + rotating text logs",
     "No external network calls for core monitoring",
-    "All alerting via local webhook/Telegram only"
+    "All alerting via local webhook/Telegram only",
+    "Enforce Arch Linux On-Demand System Rulebook (SYSTEM_RULEBOOK.md)",
+    "All background services must be strictly on-demand with clean exit cleanup",
+    "Single-responsibility subsystems: firewalld, https-timesync, tlp"
   ],
   "architecture_patterns": [
     "Collector-processor-alert-dashboard pipeline",
@@ -81,7 +84,9 @@
     "Never block on external network calls in collectors",
     "Never log secrets or personal data",
     "Never claim system is 'error-free' - only report verified state",
-    "Never install packages without explicit confirmation"
+    "Never install packages without explicit confirmation",
+    "Never enable unsolicited boot or background daemons",
+    "Never bypass D-Bus circuit breakers or autostart shields"
   ],
   "preferred_patterns": [
     "Use dataclasses + type hints for all metric schemas",
