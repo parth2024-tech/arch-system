@@ -1,0 +1,11 @@
+[Unit]
+Description=Arch Linux User Session Governance Shield
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/enforce-user-governance
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# USER-SESSION GOVERNANCE SHIELD (RUNS ON LOGIN)
+# Guarantees that login never resurrects prohibited background processes.
+# ==============================================================================
+
+# 1. Kill any stray Akonadi / MySQL processes if spontaneously started
+pkill -9 -f "akonadi" 2>/dev/null || true
+pkill -9 -f "mysqld.*akonadi" 2>/dev/null || true
+pkill -9 -f "kclockd" 2>/dev/null || true
+pkill -9 -f "snap-userd" 2>/dev/null || true
+
+# 2. Re-assert autostart shields
+AUTOSTART_DIR="$HOME/.config/autostart"
+mkdir -p "$AUTOSTART_DIR"
+
+SHIELDS=(
+    "baloo_file.desktop"
+    "blueman.desktop"
+    "kalarm.autostart.desktop"
+    "kmix_autostart.desktop"
+    "org.kde.discover.notifier.desktop"
+    "org.kde.kalendarac.desktop"
+    "org.kde.kclockd-autostart.desktop"
+    "org.kde.kdeconnect.daemon.desktop"
+    "restore_kmix_volumes.desktop"
+    "snap-userd-autostart.desktop"
+)
+
+for s in "${SHIELDS[@]}"; do
+    target="$AUTOSTART_DIR/$s"
+    if [ ! -f "$target" ] || ! grep -q "Hidden=true" "$target" 2>/dev/null; then
+        echo -e "[Desktop Entry]\nType=Application\nName=$s\nHidden=true" > "$target"
+    fi
+done
+
+# 3. Re-assert Akonadi D-Bus circuit breaker
+DBUS_DIR="$HOME/.local/share/dbus-1/services"
+mkdir -p "$DBUS_DIR"
+cat << 'DBEOF' > "$DBUS_DIR/org.freedesktop.Akonadi.Control.service"
+[D-BUS Service]
+Name=org.freedesktop.Akonadi.Control
+Exec=/bin/false
+DBEOF
+
+exit 0

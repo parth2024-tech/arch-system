@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""
+Arch Linux System Governance & Compliance Auditor
+Verifies that all running processes and system configurations adhere to the
+System Governance & Process Rulebook (Rules 1-7).
+"""
+
+import subprocess
+import sys
+import os
+
+GREEN = "\033[92m"
+RED = "\033[91m"
+YELLOW = "\033[93m"
+CYAN = "\033[96m"
+BOLD = "\033[1m"
+RESET = "\033[0m"
+
+PROHIBITED_PROCESSES = {
+    'akonadi_control': 'Akonadi PIM Controller (Should only run with KMail/KAlarm)',
+    'akonadiserver': 'Akonadi Core Server (Should only run with KMail/KAlarm)',
+    'mysqld': 'Akonadi MySQL database daemon',
+    'blueman-applet': 'Redundant GTK Bluetooth applet (Native KDE Bluetooth used)',
+    'blueman-tray': 'Redundant GTK Bluetooth tray applet',
+    'kmix': 'Redundant volume mixer (Native Plasma sound applet used)',
+    'DiscoverNotifier': 'Unsolicited package update poller',
+    'chronyd': 'Redundant time-sync daemon (UDP 123 blocked, https-timesync is authoritative)',
+    'speech-dispatcher': 'Unsolicited background screen reader / TTS daemon',
+    'baloo_file': 'Prohibited background file indexer',
+    'kclockd': 'Prohibited background alarm daemon',
+    'snap-userd': 'Prohibited snap user session daemon',
+}
+
+def check_prohibited_processes():
+    violations = []
+    try:
+        out = subprocess.check_output(['ps', '-eo', 'pid,comm,args'], text=True)
+        for line in out.strip().split('\n')[1:]:
+            parts = line.split(maxsplit=2)
+            if len(parts) >= 2:
+                pid, comm = parts[0], parts[1]
+                if comm in PROHIBITED_PROCESSES:
+                    violations.append((pid, comm, PROHIBITED_PROCESSES[comm]))
+    except Exception as e:
+        print(f"Error checking processes: {e}")
+    return violations
+
+def check_failed_units():
+    failed = []
+    try:
+        out = subprocess.check_output(['systemctl', '--failed', '--no-legend'], text=True)
+        for line in out.strip().split('\n'):
+            if line.strip():
+                failed.append(line.strip().split()[0])
+    except Exception:
+        pass
+    return failed
+
+def check_autostart_shields():
+    shields = [
+        'kalarm.autostart.desktop',
+        'blueman.desktop',
+        'kmix_autostart.desktop',
+        'org.kde.discover.notifier.desktop',
+        'org.kde.kdeconnect.daemon.desktop',
+        'baloo_file.desktop',
+        'snap-userd-autostart.desktop',
+        'org.kde.kclockd-autostart.desktop',
+    ]
+    missing = []
+    autostart_dir = os.path.expanduser('~/.config/autostart')
+    for s in shields:
+        p = os.path.join(autostart_dir, s)
+        if not os.path.isfile(p):
+            missing.append(s)
+        else:
+            with open(p) as f:
+                if 'Hidden=true' not in f.read():
+                    missing.append(f"{s} (not hidden)")
+    return missing
+
+def check_user_exceptions():
+    # Rule 1.4: obsidian-telegram-bot is an authorized continuous background service
+    try:
+        out = subprocess.check_output(['systemctl', '--user', 'is-active', 'obsidian-telegram-bot.service'], text=True).strip()
+        return out == 'active'
+    except Exception:
+        return False
+
+def check_time_subsystem():
+    # Rule 4.2: Only https-timesync.timer should be authoritative
+    status = {}
+    try:
+        t_active = subprocess.check_output(['systemctl', 'is-active', 'https-timesync.timer'], text=True).strip()
+        status['https_timer'] = (t_active == 'active')
+    except Exception:
+        status['https_timer'] = False
+
+    try:
+        c_active = subprocess.check_output(['systemctl', 'is-active', 'chronyd.service'], text=True).strip()
+        status['chronyd_running'] = (c_active == 'active')
+    except Exception:
+        status['chronyd_running'] = False
+
+    return status
+
+def check_dgpu_power():
+    # Rule 5.4: NVIDIA dGPU RTD3 power status
+    gpu_pci = '/sys/bus/pci/devices/0000:01:00.0'
+    info = {'present': os.path.exists(gpu_pci)}
+    if info['present']:
+        try:
+            with open(f"{gpu_pci}/power/runtime_status") as f:
+                info['runtime_status'] = f.read().strip()
+            with open(f"{gpu_pci}/power/control") as f:
+                info['power_control'] = f.read().strip()
+        except Exception as e:
+            info['error'] = str(e)
+    return info
+
+def check_power_governor():
+    status = {}
+    try:
+        with open('/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor') as f:
+            status['governor'] = f.read().strip()
+        with open('/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference') as f:
+            status['epp'] = f.read().strip()
+        with open('/sys/firmware/acpi/platform_profile') as f:
+            status['platform'] = f.read().strip()
+    except Exception as e:
+        status['error'] = str(e)
+    return status
+
+def main():
+    print(f"\n{BOLD}{CYAN}=== ARCH LINUX SYSTEM GOVERNANCE AUDIT (RULES 1-7) ==={RESET}\n")
+    all_compliant = True
+
+    # 1. Prohibited Background Processes
+    print(f"{BOLD}[1] Checking for Prohibited / Unsolicited Processes (Rule 1 & Matrix)...{RESET}")
+    procs = check_prohibited_processes()
+    if not procs:
+        print(f"    {GREEN}✓ PASS{RESET}: Zero prohibited background processes detected.")
+    else:
+        all_compliant = False
+        print(f"    {RED}✗ VIOLATION FOUND:{RESET}")
+        for pid, comm, reason in procs:
+            print(f"      - PID {pid} [{comm}]: {reason}")
+
+    # 2. Systemd Health
+    print(f"\n{BOLD}[2] Checking Systemd Unit Health (Rule 1)...{RESET}")
+    failed = check_failed_units()
+    if not failed:
+        print(f"    {GREEN}✓ PASS{RESET}: Zero failed systemd units.")
+    else:
+        print(f"    {YELLOW}! NOTICE{RESET}: Failed units present:")
+        for u in failed:
+            print(f"      - {u}")
+
+    # 3. Autostart Shields
+    print(f"\n{BOLD}[3] Checking Autostart Defense Shields (Rule 1 & Part III)...{RESET}")
+    missing_shields = check_autostart_shields()
+    if not missing_shields:
+        print(f"    {GREEN}✓ PASS{RESET}: All 8 autostart override shields active in ~/.config/autostart.")
+    else:
+        all_compliant = False
+        print(f"    {RED}✗ INCOMPLETE SHIELD:{RESET} Missing overrides for:")
+        for m in missing_shields:
+            print(f"      - {m}")
+
+    # 4. D-Bus Neutralization
+    print(f"\n{BOLD}[4] Checking D-Bus Backdoor Neutralization (Rule 3)...{RESET}")
+    dbus_override = os.path.expanduser('~/.local/share/dbus-1/services/org.freedesktop.Akonadi.Control.service')
+    if os.path.isfile(dbus_override):
+        with open(dbus_override) as f:
+            if '/bin/false' in f.read():
+                print(f"    {GREEN}✓ PASS{RESET}: Akonadi D-Bus auto-activation is neutralized (/bin/false).")
+            else:
+                all_compliant = False
+                print(f"    {RED}✗ WARNING{RESET}: D-Bus override exists but does not point to /bin/false.")
+    else:
+        all_compliant = False
+        print(f"    {RED}✗ MISSING{RESET}: D-Bus circuit breaker for Akonadi is missing.")
+
+    # 5. Single Timekeeper Subsystem
+    print(f"\n{BOLD}[5] Checking Timekeeper Subsystem (Rule 4.2)...{RESET}")
+    time_stat = check_time_subsystem()
+    if time_stat.get('https_timer') and not time_stat.get('chronyd_running'):
+        print(f"    {GREEN}✓ PASS{RESET}: Sole authoritative timekeeper is https-timesync.timer (chronyd inactive).")
+    elif time_stat.get('https_timer') and time_stat.get('chronyd_running'):
+        all_compliant = False
+        print(f"    {RED}✗ CONFLICT FOUND:{RESET} Dual time-sync conflict. Both https-timesync.timer and chronyd are active.")
+        print(f"      Run: sudo systemctl disable --now chronyd (NTP UDP 123 is blocked on this network).")
+    else:
+        print(f"    {YELLOW}! NOTICE{RESET}: https-timesync.timer is inactive.")
+
+    # 6. User Continuous Exceptions
+    print(f"\n{BOLD}[6] Checking User Continuous Exceptions (Rule 1.4)...{RESET}")
+    if check_user_exceptions():
+        print(f"    {GREEN}✓ PASS{RESET}: Authorized daemon 'obsidian-telegram-bot' running under Rule 1.4 exception.")
+    else:
+        print(f"    {YELLOW}! NOTICE{RESET}: Authorized daemon 'obsidian-telegram-bot' is not currently running.")
+
+    # 7. NVIDIA dGPU Power Gating
+    print(f"\n{BOLD}[7] Checking NVIDIA dGPU Power Gating (Rule 5.4)...{RESET}")
+    gpu = check_dgpu_power()
+    if gpu.get('present'):
+        rt_status = gpu.get('runtime_status', 'unknown')
+        p_ctrl = gpu.get('power_control', 'unknown')
+        if rt_status == 'suspended' and p_ctrl == 'auto':
+            print(f"    {GREEN}✓ PASS{RESET}: NVIDIA dGPU RTD3 is suspended (0W idle, control: auto).")
+        elif p_ctrl == 'auto':
+            print(f"    {YELLOW}! NOTICE{RESET}: NVIDIA dGPU is '{rt_status}' with control='auto' (active GPU client attached).")
+        else:
+            print(f"    {YELLOW}! NOTICE{RESET}: NVIDIA dGPU power/control is '{p_ctrl}' (expected 'auto' via udev rule).")
+            print(f"      Run optimization script to install /etc/udev/rules.d/80-nvidia-pm.rules.")
+
+    # 8. CPU Power Governor
+    print(f"\n{BOLD}[8] Checking CPU Power & Governor Discipline (Rule 5.3)...{RESET}")
+    gov = check_power_governor()
+    if gov.get('governor') == 'powersave':
+        print(f"    {GREEN}✓ PASS{RESET}: CPU Governor is dynamic 'powersave' (EPP: {gov.get('epp')}, Profile: {gov.get('platform')}).")
+    else:
+        print(f"    {YELLOW}! NOTICE{RESET}: CPU Governor is '{gov.get('governor')}'. Expected 'powersave' with HWP.")
+
+    # Overall Status
+    print("\n" + "=" * 55)
+    if all_compliant:
+        print(f"{BOLD}{GREEN}★ SYSTEM COMPLIANCE STATUS: 100% COMPLIANT ★{RESET}")
+        print(f"{GREEN}All software is adhering strictly to the System Rulebook.{RESET}")
+    else:
+        print(f"{BOLD}{RED}⚠ SYSTEM COMPLIANCE STATUS: VIOLATIONS DETECTED ⚠{RESET}")
+        print(f"{YELLOW}Run corrective cleanup or review SYSTEM_RULEBOOK.md.{RESET}")
+    print("=" * 55 + "\n")
+
+if __name__ == '__main__':
+    main()
